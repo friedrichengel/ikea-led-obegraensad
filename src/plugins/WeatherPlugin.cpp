@@ -1,25 +1,17 @@
 #include "plugins/WeatherPlugin.h"
 
 // https://github.com/chubin/wttr.in/blob/master/share/translations/en.txt
-#ifdef ESP32
-#include <WiFi.h>
-#endif
-#ifdef ESP8266
-#include <ESP8266WiFi.h>
-WiFiClient wiFiClient;
-#endif
+#include <ETH.h>
 
 void WeatherPlugin::setup()
 {
   Screen.clear();
 
-#ifdef ESP32
   if (secureClient == nullptr)
   {
     secureClient = new WiFiClientSecure();
     secureClient->setInsecure();
   }
-#endif
 
   // If we have cached data and it's still fresh (< 30 minutes old), redraw it
   if (hasCachedData && lastUpdate > 0 && millis() >= lastUpdate &&
@@ -57,10 +49,10 @@ void WeatherPlugin::loop()
 
 void WeatherPlugin::update()
 {
-  // Check WiFi connection first
-  if (WiFi.status() != WL_CONNECTED)
+  // Check network connection first
+  if (!ETH.hasIP())
   {
-    Serial.println("WiFi not connected, skipping weather update");
+    Serial.println("Network not connected, skipping weather update");
     return;
   }
 
@@ -68,7 +60,6 @@ void WeatherPlugin::update()
   Serial.print("Requesting weather from: ");
   Serial.println(weatherApiString);
 
-#ifdef ESP32
   if (secureClient != nullptr)
   {
     http.begin(*secureClient, weatherApiString);
@@ -78,10 +69,6 @@ void WeatherPlugin::update()
     Serial.println("Secure client not initialized!");
     return;
   }
-#endif
-#ifdef ESP8266
-  http.begin(wiFiClient, weatherApiString);
-#endif
 
   http.setTimeout(20000);
 

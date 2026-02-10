@@ -1,14 +1,7 @@
 #pragma once
 
-#ifdef ESP32
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
-#endif
-#ifdef ESP8266
-#include <ESP8266HTTPClient.h>
-#include <ESP8266WiFi.h>
-#include <WiFiClient.h>
-#endif
 #include "PluginManager.h"
 #include <ArduinoJson.h>
 class WeatherPlugin : public Plugin
@@ -16,12 +9,7 @@ class WeatherPlugin : public Plugin
 private:
   unsigned long lastUpdate = 0;
   HTTPClient http;
-#ifdef ESP32
   WiFiClientSecure *secureClient = nullptr;
-#endif
-#ifdef ESP8266
-  WiFiClient wiFiClient;
-#endif
 
   // Cached weather data
   bool hasCachedData = false;
@@ -45,13 +33,11 @@ private:
 public:
   ~WeatherPlugin()
   {
-#ifdef ESP32
     if (secureClient != nullptr)
     {
       delete secureClient;
       secureClient = nullptr;
     }
-#endif
   }
 
   void update();

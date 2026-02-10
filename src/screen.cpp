@@ -17,10 +17,8 @@ void Screen_::setBrightness(uint8_t brightness, bool shouldStore)
 {
   brightness_ = brightness;
 
-#ifndef ESP8266
   pinMode(PIN_ENABLE, OUTPUT);
   digitalWrite(PIN_ENABLE, LOW);
-#endif
 
 #ifdef ENABLE_STORAGE
   if (shouldStore)
@@ -94,7 +92,14 @@ void Screen_::loadFromStorage()
   storage.begin("led-wall", true);
 
   clear();
-  storage.getBytes("data", renderBuffer_, ROWS * COLS);
+  if (storage.isKey("data"))
+  {
+    size_t len = storage.getBytesLength("data");
+    if (len == ROWS * COLS)
+    {
+      storage.getBytes("data", renderBuffer_, ROWS * COLS);
+    }
+  }
 
   setBrightness(storage.getUInt("brightness", MAX_BRIGHTNESS));
   setCurrentRotation(storage.getUInt("rotation", 0));
@@ -117,6 +122,9 @@ void Screen_::persist()
 void Screen_::setup()
 {
 #ifdef ENABLE_STORAGE
+  // Ensure namespace exists to avoid NOT_FOUND warnings on read-only opens
+  storage.begin("led-wall", false);
+  storage.end();
   storage.begin("led-wall", true);
   setBrightness(storage.getUInt("brightness", MAX_BRIGHTNESS));
   Screen.setCurrentRotation(storage.getUInt("rotation", 0));
@@ -127,21 +135,6 @@ void Screen_::setup()
 #endif
 
   // TODO find proper unused pins for MISO and SS
-#ifdef ESP8266
-  // Initialize control pins
-  pinMode(PIN_LATCH, OUTPUT);
-  digitalWrite(PIN_LATCH, LOW);
-
-  SPI.pins(PIN_CLOCK, 12, PIN_DATA, 15); // SCLK, MISO, MOSI, SS);
-  SPI.begin();
-  SPI.beginTransaction(SPISettings(10000000, MSBFIRST, SPI_MODE0));
-
-  timer1_attachInterrupt(&onScreenTimer);
-  timer1_enable(TIM_DIV256, TIM_EDGE, TIM_SINGLE);
-  timer1_write(100);
-#endif
-
-#ifdef ESP32
   // Initialize control pins
   pinMode(PIN_LATCH, OUTPUT);
   pinMode(PIN_ENABLE, OUTPUT);
@@ -154,7 +147,6 @@ void Screen_::setup()
   hw_timer_t *Screen_timer = timerBegin(1000000);
   timerAttachInterrupt(Screen_timer, &onScreenTimer);
   timerAlarm(Screen_timer, TIMER_INTERVAL_US, true, 0);
-#endif
 }
 
 void Screen_::setPixelAtIndex(uint8_t index, uint8_t value, uint8_t brightness)
@@ -285,9 +277,6 @@ IRAM_ATTR void Screen_::_render()
   digitalWrite(PIN_LATCH, LOW);
   SPI.writeBytes(bits, sizeof(spi_bits));
   digitalWrite(PIN_LATCH, HIGH);
-#ifdef ESP8266
-  timer1_write(100);
-#endif
 }
 
 void Screen_::drawLine(int x1, int y1, int x2, int y2, int ledStatus, uint8_t brightness)
@@ -438,11 +427,7 @@ void Screen_::scrollText(const std::string &text, int delayTime, uint8_t brightn
       }
     }
 
-#ifdef ESP32
     vTaskDelay(pdMS_TO_TICKS(delayTime));
-#else
-    delay(delayTime);
-#endif
   }
 }
 
@@ -483,11 +468,7 @@ void Screen_::scrollGraph(const std::vector<int> &graph,
         y1 = y2; // this value is next values previous value
       }
     }
-#ifdef ESP32
     vTaskDelay(pdMS_TO_TICKS(delayTime));
-#else
-    delay(delayTime);
-#endif
   }
 }
 

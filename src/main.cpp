@@ -2,19 +2,9 @@
 #include <BfButton.h>
 #include <SPI.h>
 
-#ifdef ESP8266
-/* Fix duplicate defs of HTTP_GET, HTTP_POST, ... in ESPAsyncWebServer.h */
-#define WEBSERVER_H
-#endif
-
-#include <WiFiManager.h>
-
-#ifdef ESP32
+#include <ETH.h>
 #include <ESPmDNS.h>
-#endif
-#ifdef ESP8266
-#include <ESP8266WiFi.h>
-#endif
+#include <WiFi.h>
 
 #include "PluginManager.h"
 #include "scheduler.h"
@@ -46,6 +36,7 @@
 #include "ota.h"
 #include "screen.h"
 #include "secrets.h"
+#include "storage.h"
 #include "websocket.h"
 
 BfButton btn(BfButton::STANDALONE_DIGITAL, PIN_BUTTON, true, LOW);
@@ -54,26 +45,162 @@ unsigned long previousMillis = 0;
 unsigned long interval = 30000;
 
 PluginManager pluginManager;
-#ifdef ESP32
 DRAM_ATTR volatile SYSTEM_STATUS currentStatus = NONE;
-#else
-volatile SYSTEM_STATUS currentStatus = NONE;
-#endif
-WiFiManager wifiManager;
 
 unsigned long lastConnectionAttempt = 0;
 const unsigned long connectionInterval = 10000;
 unsigned long reconnectionBackoff = 5000;            // Start with 5 seconds
 const unsigned long maxReconnectionBackoff = 300000; // Max 5 minutes
 uint8_t reconnectionAttempts = 0;
+unsigned long dhcpStartMillis = 0;
+const unsigned long dhcpTimeoutMs = 15000;
+bool staticFallbackApplied = false;
 
-void connectToWiFi()
+static bool mdnsStarted = false;
+
+void logEthConfig()
 {
-  // if a WiFi setup AP was started, reboot is required to clear routes
-  bool wifiWebServerStarted = false;
-  wifiManager.setWebServerCallback([&wifiWebServerStarted]() { wifiWebServerStarted = true; });
+#if defined(ETH_PHY_TYPE)
+  Serial.print("ETH PHY type: ");
+  Serial.println(ETH_PHY_TYPE);
+#endif
+#if defined(ETH_PHY_ADDR)
+  Serial.print("ETH PHY addr: ");
+  Serial.println(ETH_PHY_ADDR);
+#endif
+#if defined(ETH_PHY_MDC)
+  Serial.print("ETH MDC: ");
+  Serial.println(ETH_PHY_MDC);
+#endif
+#if defined(ETH_PHY_MDIO)
+  Serial.print("ETH MDIO: ");
+  Serial.println(ETH_PHY_MDIO);
+#endif
+#if defined(ETH_PHY_POWER)
+  Serial.print("ETH PWR pin: ");
+  Serial.println(ETH_PHY_POWER);
+#endif
+#if defined(ETH_CLK_MODE)
+  Serial.print("ETH clock mode: ");
+  Serial.println(ETH_CLK_MODE);
+#endif
+}
 
-  wifiManager.setHostname(WIFI_HOSTNAME);
+void logEthStatus()
+{
+  Serial.print("ETH started: ");
+  Serial.print(ETH.started() ? "yes" : "no");
+  Serial.print(" link: ");
+  Serial.print(ETH.linkUp() ? "up" : "down");
+  Serial.print(" hasIP: ");
+  Serial.println(ETH.hasIP() ? "yes" : "no");
+}
+
+void onEthEvent(WiFiEvent_t event, WiFiEventInfo_t info)
+{
+  switch (event)
+  {
+  case ARDUINO_EVENT_ETH_START:
+    Serial.println("Ethernet started");
+    break;
+  case ARDUINO_EVENT_ETH_CONNECTED:
+    Serial.println("Ethernet connected");
+    break;
+  case ARDUINO_EVENT_ETH_GOT_IP:
+    Serial.print("Ethernet IPv4: ");
+    Serial.println(ETH.localIP());
+    Serial.print("Gateway: ");
+    Serial.println(ETH.gatewayIP());
+    Serial.print("Subnet: ");
+    Serial.println(ETH.subnetMask());
+    Serial.print("DNS: ");
+    Serial.println(ETH.dnsIP());
+    if (!mdnsStarted)
+    {
+      if (MDNS.begin(WIFI_HOSTNAME))
+      {
+        MDNS.addService("http", "tcp", 80);
+        MDNS.setInstanceName(WIFI_HOSTNAME);
+        mdnsStarted = true;
+      }
+      else
+      {
+        Serial.println("Could not start mDNS!");
+      }
+    }
+    break;
+  case ARDUINO_EVENT_ETH_GOT_IP6:
+#if CONFIG_LWIP_IPV6
+    if (ETH.hasGlobalIPv6())
+    {
+      Serial.print("Ethernet IPv6: ");
+      Serial.println(ETH.globalIPv6());
+    }
+    else if (ETH.hasLinkLocalIPv6())
+    {
+      Serial.print("Ethernet IPv6 (LL): ");
+      Serial.println(ETH.linkLocalIPv6());
+    }
+#endif
+    break;
+  case ARDUINO_EVENT_ETH_LOST_IP:
+    Serial.println("Ethernet lost IPv4");
+    break;
+  case ARDUINO_EVENT_ETH_DISCONNECTED:
+    Serial.println("Ethernet disconnected");
+    break;
+  case ARDUINO_EVENT_ETH_STOP:
+    Serial.println("Ethernet stopped");
+    break;
+  default:
+    Serial.print("Ethernet event: ");
+    Serial.println(event);
+    break;
+  }
+  (void)info;
+}
+
+void connectToEthernet()
+{
+  WiFi.mode(WIFI_OFF);
+  WiFi.onEvent(onEthEvent);
+
+  logEthConfig();
+
+  if (ETH.started() || ETH.linkUp() || ETH.hasIP())
+  {
+    Serial.println("ETH already started, skipping begin");
+    return;
+  }
+
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 1, 0)
+  Serial.println("Resetting Ethernet before reconnect...");
+  ETH.end();
+  delay(50);
+#endif
+
+#if defined(ETH_PHY_TYPE) && defined(ETH_PHY_ADDR) && defined(ETH_PHY_MDC) && defined(ETH_PHY_MDIO) && defined(ETH_PHY_POWER) && defined(ETH_CLK_MODE)
+  if (!ETH.begin(ETH_PHY_TYPE, ETH_PHY_ADDR, ETH_PHY_MDC, ETH_PHY_MDIO, ETH_PHY_POWER, ETH_CLK_MODE))
+  {
+    Serial.println("ETH.begin failed");
+    lastConnectionAttempt = millis();
+    return;
+  }
+#else
+  if (!ETH.begin())
+  {
+    Serial.println("ETH.begin failed");
+    lastConnectionAttempt = millis();
+    return;
+  }
+#endif
+
+  ETH.setHostname(WIFI_HOSTNAME);
+  ETH.enableIPv6(true);
+
+  Serial.println("ETH.begin OK, waiting for IP...");
+  dhcpStartMillis = millis();
+  staticFallbackApplied = false;
 
 #if defined(IP_ADDRESS) && defined(GWY) && defined(SUBNET) && defined(DNS1)
   auto ip = IPAddress();
@@ -88,33 +215,8 @@ void connectToWiFi()
   auto dns = IPAddress();
   dns.fromString(DNS1);
 
-  wifiManager.setSTAStaticIPConfig(ip, gwy, subnet, dns);
+  ETH.config(ip, gwy, subnet, dns);
 #endif
-
-  wifiManager.setConnectRetries(10);
-  wifiManager.setConnectTimeout(10);
-  wifiManager.setConfigPortalTimeout(180);
-  wifiManager.setWiFiAutoReconnect(true);
-  wifiManager.autoConnect(WIFI_MANAGER_SSID);
-
-#ifdef ESP32
-  if (MDNS.begin(WIFI_HOSTNAME))
-  {
-    MDNS.addService("http", "tcp", 80);
-    MDNS.setInstanceName(WIFI_HOSTNAME);
-  }
-  else
-  {
-    Serial.println("Could not start mDNS!");
-  }
-#endif
-
-  if (wifiWebServerStarted)
-  {
-    // Reboot required, otherwise wifiManager server interferes with our server
-    Serial.println("Done running WiFi Manager webserver - rebooting");
-    ESP.restart();
-  }
 
   lastConnectionAttempt = millis();
 }
@@ -143,19 +245,22 @@ void pressHandler(BfButton *btn, BfButton::press_pattern_t pattern)
 void baseSetup()
 {
   Serial.begin(115200);
+  logEthConfig();
+
+#ifdef ENABLE_STORAGE
+  // Ensure namespace exists before any read-only opens to avoid NOT_FOUND warnings
+  storage.begin("led-wall", false);
+  storage.end();
+#endif
 
   pinMode(PIN_LATCH, OUTPUT);
   pinMode(PIN_CLOCK, OUTPUT);
   pinMode(PIN_DATA, OUTPUT);
   pinMode(PIN_ENABLE, OUTPUT);
 
-#if !defined(ESP32) && !defined(ESP8266)
-  Screen.setup();
-#endif
-
 // server
 #ifdef ENABLE_SERVER
-  connectToWiFi();
+  connectToEthernet();
 
   // set time server
   configTzTime(TZ_INFO, NTP_SERVER);
@@ -194,7 +299,6 @@ void baseSetup()
   btn.onPress(pressHandler).onDoublePress(pressHandler).onPressFor(pressHandler, 1000);
 }
 
-#ifdef ESP32
 TaskHandle_t screenDrawingTaskHandle = NULL;
 
 void screenDrawingTask(void *parameter)
@@ -218,21 +322,6 @@ void setup()
                           &screenDrawingTaskHandle,
                           0);
 }
-#endif
-#ifdef ESP8266
-void screenDrawingTask()
-{
-  Screen.setup();
-  pluginManager.runActivePlugin();
-  yield();
-}
-
-void setup()
-{
-  baseSetup();
-  Scheduler.start();
-}
-#endif
 
 void loop()
 {
@@ -242,10 +331,6 @@ void loop()
 
 #ifdef ENABLE_SERVER
   ElegantOTA.loop();
-#endif
-
-#if !defined(ESP32) && !defined(ESP8266)
-  pluginManager.runActivePlugin();
 #endif
 
   if (currentStatus == NONE)
@@ -258,14 +343,26 @@ void loop()
     }
   }
 
-  // Check WiFi less frequently with exponential backoff
-  if (WiFi.status() != WL_CONNECTED)
+  // Check network less frequently with exponential backoff
+  if (!ETH.hasIP())
   {
+    if (!staticFallbackApplied && dhcpStartMillis > 0 &&
+        (millis() - dhcpStartMillis) >= dhcpTimeoutMs)
+    {
+      Serial.println("DHCP timeout, applying fallback static IP");
+      ETH.config(IPAddress(192, 168, 1, 91),
+                 IPAddress(192, 168, 1, 1),
+                 IPAddress(255, 255, 255, 0),
+                 IPAddress(1, 1, 1, 1));
+      staticFallbackApplied = true;
+    }
+
     unsigned long currentMillis = millis();
     if (currentMillis - lastConnectionAttempt >= reconnectionBackoff)
     {
-      Serial.println("WiFi disconnected, attempting reconnection...");
-      connectToWiFi();
+      Serial.println("Network disconnected, attempting reconnection...");
+      logEthStatus();
+      connectToEthernet();
 
       // Exponential backoff: double the wait time, up to max
       reconnectionAttempts++;
@@ -276,7 +373,7 @@ void loop()
   {
     if (reconnectionAttempts > 0)
     {
-      Serial.println("WiFi reconnected successfully");
+      Serial.println("Network reconnected successfully");
       reconnectionAttempts = 0;
       reconnectionBackoff = 5000;
     }
@@ -291,9 +388,5 @@ void loop()
 #ifdef ENABLE_SERVER
   cleanUpClients();
 #endif
-#ifdef ESP32
   vTaskDelay(1);
-#else
-  delay(1);
-#endif
 }

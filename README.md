@@ -13,14 +13,13 @@ Turn your OBEGRÄNSAD LED Wall Lamp into a live drawing canvas
 
 - [Features](#features)
 - [Quick Start](#quick-start)
-- [Hardware Setup](#hardware-setup)
+  - [Hardware Setup](#hardware-setup)
   - [Opening the Lamp](#opening-the-lamp)
   - [Understanding the Panels](#understanding-the-panels)
   - [Pin Configuration](#pin-configuration)
   - [Alternate Button Wiring](#alternate-button-wiring)
 - [Software Setup](#software-setup)
   - [ESP32 Setup with VS Code and PlatformIO](#esp32-setup-with-vs-code-and-platformio)
-  - [WiFi Configuration](#wifi-configuration)
 - [OTA Updates](#ota-updates)
   - [Configuration](#configuration)
   - [Upload Methods](#upload-methods)
@@ -49,7 +48,7 @@ Turn your OBEGRÄNSAD LED Wall Lamp into a live drawing canvas
 - Rotate image
 - Live Drawing
 - OTA Update
-- WiFi Control
+- Network Control
 - Web GUI
 - Load an image
 - Switch plugin by pressing the button
@@ -88,13 +87,11 @@ Control the lamp using the built-in web GUI. Find the device IP address via:
 
 ## Hardware Setup
 
-This software is designed for ESP32 Dev Boards but can work with other Arduino boards (WiFi, OTA, and web server features will need to be removed for non-ESP boards).
+This software is tailored for the `esp32-poe-iso` board with wired Ethernet. Other ESP32 boards may work but will likely need pin/PHY adjustments and different Ethernet wiring.
 
-**Supported Boards:**
+**Supported Board:**
 
-- ESP32 Dev Board (recommended)
-- TTGO LoRa32 V2.1 (T3_V1.6.1)
-- ESP8266 (with limitations: per-pixel brightness only works when storage and global brightness are disabled)
+- `esp32-poe-iso` (recommended)
 
 <img src="https://user-images.githubusercontent.com/15351728/200148521-86d0f9e6-2c41-4707-b2d9-8aa24a0e440e.jpg" width="60%" />
 
@@ -167,8 +164,8 @@ You can use the original button wiring without adding external connections. See 
 4. **Configure the Project**
 
    - Run `PlatformIO: Clean` (Recycle bin icon in bottom toolbar)
-   - Edit `include/secrets.h` with your WiFi credentials (ESP8266 only; ESP32 can use WiFi Manager)
    - Configure variables in `include/constants.h`
+   - (Optional) Adjust static IPv4 config in `include/constants.h` (`IP_ADDRESS`, `GWY`, `SUBNET`, `DNS1`)
 
 5. **Build the Project**
 
@@ -179,25 +176,11 @@ You can use the original button wiring without adding external connections. See 
 6. **Upload to ESP32**
    - Click `PlatformIO Upload` (bottom toolbar)
 
-### WiFi Configuration
+**Ethernet Notes (esp32-poe-iso):**
 
-**ESP32 (WiFi Manager - Recommended):**
-
-This project uses [tzapu's WiFiManager](https://github.com/tzapu/WiFiManager). After booting:
-
-1. Device attempts to connect to known access points
-2. If none available, creates network named `Ikea Display Setup WiFi`
-3. Connect to this network on any device
-4. Captive portal guides you through WiFi configuration
-5. Device reboots and connects to your network
-
-\*_Network name can be changed via `WIFI_MANAGER_SSID` in `include/constants.h`._
-
-**ESP8266 (Manual Configuration):**
-
-For ESP8266, WiFi Manager is not available. Set `WIFI_SSID` and `WIFI_PASSWORD` in `include/secrets.h`.
-
----
+- Ethernet is enabled via the board variant in `platformio.ini` (`board = esp32-poe-iso`).
+- PHY type is forced to `ETH_PHY_KSZ8081` in `platformio.ini` to match the board setup.
+- IPv6 is enabled in firmware; IPv4 is obtained via DHCP unless you set a static IPv4 config.
 
 ## OTA Updates
 

@@ -108,7 +108,8 @@ void PluginScheduler::init()
 #ifdef ENABLE_STORAGE
   storage.begin("led-wall", true);
   int storedActive = storage.getInt("scheduleactive", 0);
-  bool scheduleIsSet = setScheduleByJSONString(storage.getString("schedule"));
+  String scheduleJson = storage.isKey("schedule") ? storage.getString("schedule") : String("");
+  bool scheduleIsSet = setScheduleByJSONString(scheduleJson);
 
   isActive = (storedActive == 1);
   storage.end();

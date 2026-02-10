@@ -1,11 +1,19 @@
 #include "plugins/ArtNet.h"
 
+#ifdef ESP32
+#include <ETH.h>
+#endif
+
 void ArtNetPlugin::setup()
 {
   artnet.begin();
   artnet.setArtDmxCallback(onDmxFrame);
   Serial.print("ArtNet server listening at IP: ");
+#ifdef ESP32
+  Serial.print(ETH.localIP());
+#else
   Serial.print(WiFi.localIP());
+#endif
   Serial.print(" port: ");
   Serial.println(ART_NET_PORT);
   artnet.setUniverse(1);
