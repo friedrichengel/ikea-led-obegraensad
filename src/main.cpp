@@ -96,7 +96,7 @@ void logEthStatus()
   Serial.println(ETH.hasIP() ? "yes" : "no");
 }
 
-void onEthEvent(WiFiEvent_t event, WiFiEventInfo_t info)
+void NetworkEvent(arduino_event_id_t event)
 {
   switch (event)
   {
@@ -157,13 +157,11 @@ void onEthEvent(WiFiEvent_t event, WiFiEventInfo_t info)
     Serial.println(event);
     break;
   }
-  (void)info;
 }
 
 void connectToEthernet()
 {
-  WiFi.mode(WIFI_OFF);
-  WiFi.onEvent(onEthEvent);
+  Network.onEvent(NetworkEvent);
 
   logEthConfig();
 
