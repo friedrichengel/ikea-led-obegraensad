@@ -57,6 +57,25 @@ const unsigned long dhcpTimeoutMs = 15000;
 bool staticFallbackApplied = false;
 
 static bool mdnsStarted = false;
+static bool serverStarted = false;
+static volatile bool serverStartRequested = false;
+
+void startServerStackIfReady()
+{
+#ifdef ENABLE_SERVER
+  if (serverStarted || !ETH.hasIP())
+  {
+    return;
+  }
+
+  Serial.println("Starting OTA/WebSocket/WebServer after ETH_GOT_IP...");
+  initOTA(server);
+  initWebsocketServer(server);
+  initWebServer();
+  serverStarted = true;
+  serverStartRequested = false;
+#endif
+}
 
 void logEthConfig()
 {
@@ -128,6 +147,7 @@ void NetworkEvent(arduino_event_id_t event)
         Serial.println("Could not start mDNS!");
       }
     }
+    serverStartRequested = true;
     break;
   case ARDUINO_EVENT_ETH_GOT_IP6:
 #if CONFIG_LWIP_IPV6
@@ -262,10 +282,6 @@ void baseSetup()
 
   // set time server
   configTzTime(TZ_INFO, NTP_SERVER);
-
-  initOTA(server);
-  initWebsocketServer(server);
-  initWebServer();
 #endif
 
   pluginManager.addPlugin(new DrawPlugin());
@@ -328,7 +344,15 @@ void loop()
   btn.read();
 
 #ifdef ENABLE_SERVER
-  ElegantOTA.loop();
+  if (serverStartRequested || (!serverStarted && ETH.hasIP()))
+  {
+    startServerStackIfReady();
+  }
+
+  if (serverStarted)
+  {
+    ElegantOTA.loop();
+  }
 #endif
 
   if (currentStatus == NONE)
@@ -384,7 +408,10 @@ void loop()
   }
 
 #ifdef ENABLE_SERVER
-  cleanUpClients();
+  if (serverStarted)
+  {
+    cleanUpClients();
+  }
 #endif
   vTaskDelay(1);
 }
