@@ -5,11 +5,11 @@
 // disable if you do not want to have online functionality
 #define ENABLE_SERVER
 
-#define PIN_ENABLE 32 //26
+#define PIN_ENABLE 4 //26
 #define PIN_DATA 33 //27
 #define PIN_CLOCK 13 //14
 #define PIN_LATCH 5 //12
-#define PIN_BUTTON 16
+#define PIN_BUTTON 36
 
 // disable if you do not want to use the internal storage
 // https://randomnerdtutorials.com/esp32-save-data-permanently-preferences/

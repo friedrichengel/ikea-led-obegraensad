@@ -87,11 +87,11 @@ Control the lamp using the built-in web GUI. Find the device IP address via:
 
 ## Hardware Setup
 
-This software is tailored for the `esp32-poe-iso` board with wired Ethernet. Other ESP32 boards may work but will likely need pin/PHY adjustments and different Ethernet wiring.
+This software is tailored for the `esp32-poe2` board with wired Ethernet. Other ESP32 boards may work but will likely need pin/PHY adjustments and different Ethernet wiring.
 
 **Supported Board:**
 
-- `esp32-poe-iso` (recommended)
+- `esp32-poe2` (recommended)
 
 <img src="https://user-images.githubusercontent.com/15351728/200148521-86d0f9e6-2c41-4707-b2d9-8aa24a0e440e.jpg" width="60%" />
 
@@ -176,10 +176,10 @@ You can use the original button wiring without adding external connections. See 
 6. **Upload to ESP32**
    - Click `PlatformIO Upload` (bottom toolbar)
 
-**Ethernet Notes (esp32-poe-iso):**
+**Ethernet Notes (esp32-poe2):**
 
-- Ethernet is enabled via the board variant in `platformio.ini` (`board = esp32-poe-iso`).
-- PHY type is forced to `ETH_PHY_KSZ8081` in `platformio.ini` to match the board setup.
+- Ethernet is enabled via the board variant in `platformio.ini` (`board = esp32-poe`, used for ESP32-POE2 compatibility).
+- PHY type/pins come from the selected board variant.
 - IPv6 is enabled in firmware; IPv4 is obtained via DHCP unless you set a static IPv4 config.
 
 ## OTA Updates
